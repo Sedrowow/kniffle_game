@@ -146,11 +146,15 @@ class GameScreenState extends State<GameScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: scorecards.map((scorecard) {
-              int totalScore = scorecard.totalScore();
+              final roundBonus = scorecard.calculateBonus(currentRound - 1);
+              final roundScore = scorecard.calculateRoundScore(currentRound - 1);
+              final totalScore = scorecard.totalScore();
               return ListTile(
                 title: Text(scorecard.playerName),
                 subtitle: Text(
-                  'Total Score: $totalScore\nBonus: ${scorecard.bonus}',
+                  'Round Score: $roundScore\n'
+                  '${roundBonus > 0 ? 'Round Bonus: $roundBonus\n' : ''}'
+                  'Total Score: $totalScore',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );
@@ -433,12 +437,14 @@ class GameScreenState extends State<GameScreen> {
                   child: ListView.builder(
                     itemCount: scorecards.length,
                     itemBuilder: (context, index) {
+                      final roundBonus = scorecards[index].calculateBonus(currentRound - 1);
+                      final roundScore = scorecards[index].calculateRoundScore(currentRound - 1);
                       return ListTile(
                         title: Text(scorecards[index].playerName),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Current Round: ${scorecards[index].calculateRoundScore(currentRound - 1)}'),
+                            Text('Current Round: $roundScore${roundBonus > 0 ? ' (Bonus: $roundBonus)' : ''}'),
                             Text('Total Score: ${scorecards[index].totalScore()}'),
                           ],
                         ),
