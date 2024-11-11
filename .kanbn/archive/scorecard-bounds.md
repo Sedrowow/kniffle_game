@@ -4,6 +4,7 @@ updated: 2024-11-08T13:48:34.067Z
 completed: 2024-11-08T13:48:34.067Z
 tags:
   - Average
+column: Done
 ---
 
 # scorecard-bounds

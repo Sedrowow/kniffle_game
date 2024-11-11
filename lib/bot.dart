@@ -186,7 +186,8 @@ You are a Kniffel AI bot deciding whether to roll again.
 **Important Notes:**
 - Interactions must only use the commands exactly as provided.
 - You can only roll again if you have rolls remaining (maximum 3 rolls per turn).
-- If you decide not to roll, you must proceed to scoring.
+- If you decide to skip entry, your turn will end immediately with no score.
+- If you decide not to roll, you must proceed to scoring or skip entry.
 
 Your current dice are: ${dice.join(', ')}.
 Kept dice positions: ${_getKeptDicePositions(diceKept)}.
@@ -203,7 +204,7 @@ Available commands:
 - EnterScore <Category>
 - SkipEntry
 
-Decide whether to roll again or proceed to scoring by using the commands.
+Decide whether to roll again, proceed to scoring, or skip entry by using ONE of the commands.
 ''';
 
     String response;
@@ -219,7 +220,7 @@ Decide whether to roll again or proceed to scoring by using the commands.
         // Invalid decision
         instructions += '''
 
-Your response was invalid. Please use one of the available commands.
+Your response was invalid. Please use ONE of the available commands.
 
 Available commands:
 - RollDice
@@ -228,11 +229,14 @@ Available commands:
 
 Remember to use the commands exactly as provided.
 ''';
+      } else if (decision.skipEntry) {
+        // If the AI decides to skip entry, immediately return the decision
+        return AIDecision(rollAgain: false, skipEntry: true);
       } else if (decision.rollAgain && rollCount >= 3) {
         // Cannot roll more than 3 times
         instructions += '''
 
-You have already rolled the maximum number of times (3). You must proceed to scoring.
+You have already rolled the maximum number of times (3). You must proceed to scoring or skip entry.
 
 Available commands:
 - EnterScore <Category>
@@ -243,70 +247,28 @@ Remember to use the commands exactly as provided.
       } else if (decision.categoryToScore != null) {
         // AI chose to enter a score, validate the category
         String category = decision.categoryToScore!;
-        int score = _calculatePotentialScore(category, dice);
-
         if (!availableCategories.contains(category)) {
-          // Invalid category
           instructions += '''
 
-The category you selected ("$category") is not available. Please choose a valid category from the list.
+The category you selected ("$category") is not available. Please choose a valid category or skip entry.
 
 Available Categories:
 ${availableCategories.join(', ')}
 
 Remember to use the commands exactly as provided.
 ''';
-        } else if (score == 0) {
-          // Score is zero or invalid
-          instructions += '''
-
-You have chosen to enter a category where the score would be zero or your dice do not fulfill the requirements.
-
-Please choose another category from the valid categories.
-
-Valid Categories:
-${validCategories.join(', ')}
-
-Remember to use the commands exactly as provided.
-''';
         } else {
-          // Inform AI of the score and ask for confirmation
-          instructions += '''
-
-You will enter the category "$category" with a score of $score.
-
-To confirm, re-enter the command: EnterScore $category
-
-If you want to choose a different category, please select from the valid categories.
-
-Valid Categories:
-${validCategories.join(', ')}
-''';
-          // Get confirmation
-          response = await _sendToOLLAMA(instructions);
-          print('AI response: $response');
-
-          var confirmationDecision = _parseRollDecision(response);
-
-          if (confirmationDecision?.categoryToScore == category) {
-            // Confirmed
-            return AIDecision(rollAgain: false, categoryToScore: category);
-          } else {
-            // AI chose a different action, loop again
-            continue;
-          }
+          return decision; // Valid category selected
         }
-      } else if (decision.skipEntry) {
-        return AIDecision(rollAgain: false, skipEntry: true);
-      } else if (decision.rollAgain) {
-        return AIDecision(rollAgain: true);
+      } else if (decision.rollAgain && rollCount < 3) {
+        return decision; // Valid roll decision
       }
 
       attempts++;
     } while (attempts < 3);
 
-    // Default to not rolling again
-    return AIDecision(rollAgain: false);
+    // After maximum attempts, default to skipping entry
+    return AIDecision(rollAgain: false, skipEntry: true);
   }
 
   Future<String> _aiDecideCategoryToScore(

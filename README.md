@@ -4,7 +4,7 @@ Kniffel in Flutter project. Below are all things to be done and things that are 
 
 - BUGFIX it an exception occurs if player 1 is turn after first round
 - BUGFIX if the player 1 is being a bot, it always gets an exception after the first round
-- BUG if a bot is playing, the player can still click on the dice
+- BUGFIX if a bot is playing, the player can still click on the dice
 - BUGFIX the LLM didnt always made correct responses
 - BUGFIX the saving feauture is not working, causes exception with outdated packages
 - FIXME bonus calulation is implemented, but in total score player display its not showing the bonus as well as in the round end
