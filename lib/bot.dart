@@ -204,7 +204,7 @@ Available commands:
 - EnterScore <Category>
 - SkipEntry
 
-Decide whether to roll again, proceed to scoring, or skip entry by using ONE of the commands.
+Decide whether to roll again, proceed to scoring with EnterScore, or skip your entry with SkipEntry by using ONE of the commands.
 ''';
 
     String response;
@@ -451,7 +451,7 @@ You are a Kniffel AI bot deciding whether to roll again.
 **Important Notes:**
 - Interactions must only use the commands exactly as provided.
 - You can only roll again if you have rolls remaining (maximum 3 rolls per turn).
-- If you decide not to roll, you must proceed to scoring.
+- If you decide not to roll, you must proceed to scoring with EnterScore.
 
 Your current dice are: ${dice.join(', ')}.
 Kept dice positions: ${_getKeptDicePositions(diceKept)}.
