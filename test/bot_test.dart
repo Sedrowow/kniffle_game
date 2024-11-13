@@ -6,11 +6,13 @@ import 'package:http/http.dart' as http;
 
 class MockClient extends Mock implements http.Client {}
 
-void main() {
+Future<void> main() async {
   group('Bot', () {
     late Bot bot;
 
-    setUp(() {
+    setUp(() async {
+
+      await dotenv.load(fileName: 'assets/.env'); // Load the .env file from the assets folder
       bot = Bot(name: 'TestBot', difficulty: BotDifficulty.easy);
     });
 
@@ -18,9 +20,8 @@ void main() {
       expect(bot.name, equals('TestBot'));
       expect(bot.difficulty, equals(BotDifficulty.easy));
     });
-
     test('decide dice to keep - easy mode', () async {
-      await dotenv.load(); // Ensure environment variables are loaded
+      await dotenv.load(fileName: 'assets/.env'); // Ensure environment variables are loaded
     
       final dice = [1, 2, 3, 4, 5];
       final diceKept = [false, false, false, false, false];

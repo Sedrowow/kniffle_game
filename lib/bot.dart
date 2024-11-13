@@ -8,6 +8,7 @@ import 'scorecard.dart';
 enum BotDifficulty { easy, medium, hard, ai, openai }
 
 class Bot {
+  // Ensure environment variables are loaded before creating an instance of Bot
   final String? apiKey = dotenv.env['OPENAI_API_KEY'];
   final String name;
   final BotDifficulty difficulty;

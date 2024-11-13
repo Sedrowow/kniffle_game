@@ -3,17 +3,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:kniffle_game/ai_service.dart';
 import 'game_screen.dart';
 import 'bot.dart';
 import 'package:http/http.dart' as http;
 import 'savegame.dart';
 
 Future<void> main() async {
-  // Ensure platform bindings are initialized
-  WidgetsFlutterBinding.ensureInitialized();
-  
   // Load environment variables
   await dotenv.load();
+
+  // Ensure platform bindings are initialized
+  WidgetsFlutterBinding.ensureInitialized();  
   
   // Run the app
   runApp(const MyApp());
@@ -24,20 +25,26 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Provide the AIService with a real HTTP client
+    final aiService = AIService(httpClient: http.Client());
+
     return MaterialApp(
       title: 'Kniffel Game',
       theme: ThemeData(
         primarySwatch: Colors.red,
       ),
-      home: const PlayerSetupScreen(),
+      home: PlayerSetupScreen(
+        aiService: aiService,
+      ),
     );
   }
 }
 
 class PlayerSetupScreen extends StatefulWidget {
   final SaveGame? loadedGame;
+  final AIService aiService;
   
-  const PlayerSetupScreen({super.key, this.loadedGame});
+  const PlayerSetupScreen({super.key, this.loadedGame, required this.aiService});
 
   @override
   _PlayerSetupScreenState createState() => _PlayerSetupScreenState();
@@ -109,38 +116,21 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
     super.dispose();
   }
 
-  void _checkOpenAIAvailability() {
-    setState(() {
-      isOpenAIAvailable = dotenv.env['OPENAI_API_KEY'] != null && dotenv.env['OPENAI_API_KEY']!.isNotEmpty;
-    });
+  void _checkOpenAIAvailability() async {
+    bool availability = await widget.aiService.checkOpenAIAvailability();
+    if (mounted) {
+      setState(() {
+        isOpenAIAvailable = availability;
+      });
+    }
   }
 
   void _checkAIAvailability() async {
-    String url = 'http://127.0.0.1:11434/api/tags';
-
-    try {
-      final response = await http
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 2));
-      if (mounted) {
-        setState(() {
-          isAIAvailable = response.statusCode == 200;
-        });
-      }
-    } on TimeoutException {
-      if (mounted) {
-        setState(() {
-          isAIAvailable = false;
-        });
-      }
-      print('OLLAMA service timeout: Connection timed out');
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          isAIAvailable = false;
-        });
-      }
-      print('OLLAMA service not available: $e');
+    bool availability = await widget.aiService.checkAIAvailability();
+    if (mounted) {
+      setState(() {
+        isAIAvailable = availability;
+      });
     }
   }
 
