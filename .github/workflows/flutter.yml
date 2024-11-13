@@ -13,6 +13,8 @@ jobs:
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.x'
+    -  name: Set up environment
+       run: echo "OPENAI_API_KEY=${{ secrets.API_KEY }}" > assets/.env
 
     - name: Install dependencies
       run: flutter pub get
