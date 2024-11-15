@@ -1,28 +1,47 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kniffle_game/bot.dart';
 import 'package:kniffle_game/game_screen.dart';
 import 'package:kniffle_game/main.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:kniffle_game/savegame.dart';
 import 'package:mockito/mockito.dart';
-import 'package:kniffle_game/ai_service.dart';
-
-class MockAIService extends Mock implements AIService {}
+import 'ai_service_test.mocks.dart';
+import 'savegame_test.mocks.dart';
 
 void main() {
+  late MockAIService mockAIService;
+  late MockSaveGameManager mockSaveGameManager;
+
   setUpAll(() async {
-    // Load environment variables
     await dotenv.load(fileName: 'assets/.env');
   });
 
+  setUp(() {
+    resetMockitoState();
+    mockAIService = MockAIService();
+    mockSaveGameManager = MockSaveGameManager();
+// Properly stub the async methods to simulate the behavior of the AI service and SaveGameManager without making actual network or database calls
+when(mockAIService.checkAIAvailability())
+    .thenAnswer((_) async => true);
+when(mockAIService.checkOpenAIAvailability())
+    .thenAnswer((_) async => true);
+
+// Mock the listSaves method to return a non-empty list
+// This is to simulate the presence of saved games for testing purposes
+when(mockSaveGameManager.listSaves())
+    .thenAnswer((_) async => [
+      SaveGame(
+        name: 'Test Save',
+        timestamp: DateTime.now(),
+        currentRound: 1,
+        currentPlayerIndex: 0,
+        players: [],
+        actionLog: [],
+      )
+    ]);
+  });
   testWidgets('MyApp widget test', (WidgetTester tester) async {
-    // Create a mock AIService
-    final mockAIService = MockAIService();
-
-    // Mock the AI availability checks
-    when(mockAIService.checkAIAvailability()).thenAnswer((_) async => true);
-    when(mockAIService.checkOpenAIAvailability()).thenAnswer((_) async => true);
-
     // Build the widget with the mocked AIService
     await tester.pumpWidget(
       MaterialApp(
@@ -32,26 +51,19 @@ void main() {
       ),
     );
 
-    // Wait for all animations and async operations
+    // Wait for async operations
     await tester.pumpAndSettle();
 
-    // Perform your tests
+    // Verify the widget built successfully
     expect(find.byType(MaterialApp), findsOneWidget);
-    // Add more assertions as needed
+
+    // Verify that the mock methods were called
+    verify(mockAIService.checkAIAvailability()).called(1);
+    verify(mockAIService.checkOpenAIAvailability()).called(1);
   });
 
-  testWidgets('PlayerSetupScreen initializes correctly without loaded game', (WidgetTester tester) async {
-    // Create a mock AIService
-    final mockAIService = MockAIService();
-
-    // Mock the AI availability checks
-    when(mockAIService.checkAIAvailability()).thenAnswer((_) async => true);
-    when(mockAIService.checkOpenAIAvailability()).thenAnswer((_) async => true);
-
-    // Ensure no other `when` calls are in progress
-    resetMockitoState();
-
-    // Build the widget with the mocked AIService
+  testWidgets('PlayerSetupScreen initializes without loaded game',
+      (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: PlayerSetupScreen(
@@ -70,14 +82,8 @@ void main() {
     expect(find.byType(DropdownButton<BotDifficulty>), findsNothing);
   });
 
-  testWidgets('PlayerSetupScreen adds and removes players', (WidgetTester tester) async {
-    // Create a mock AIService
-    final mockAIService = MockAIService();
-
-    // Mock the AI availability checks
-    when(mockAIService.checkAIAvailability()).thenAnswer((_) async => true);
-    when(mockAIService.checkOpenAIAvailability()).thenAnswer((_) async => true);
-
+  testWidgets('PlayerSetupScreen adds and removes players correctly',
+    (WidgetTester tester) async {
     // Build the widget with the mocked AIService
     await tester.pumpWidget(
       MaterialApp(
@@ -107,14 +113,8 @@ void main() {
     expect(find.text('Player 2 Name'), findsNothing);
   });
 
-  testWidgets('PlayerSetupScreen handles bot settings', (WidgetTester tester) async {
-    // Create a mock AIService
-    final mockAIService = MockAIService();
-
-    // Mock the AI availability checks
-    when(mockAIService.checkAIAvailability()).thenAnswer((_) async => true);
-    when(mockAIService.checkOpenAIAvailability()).thenAnswer((_) async => true);
-
+  testWidgets('PlayerSetupScreen enables and verifies bot settings',
+      (WidgetTester tester) async {
     // Build the widget with the mocked AIService
     await tester.pumpWidget(
       MaterialApp(
@@ -135,14 +135,8 @@ void main() {
     expect(find.byType(DropdownButton<BotDifficulty>), findsOneWidget);
   });
 
-  testWidgets('PlayerSetupScreen navigates to GameScreen on play', (WidgetTester tester) async {
-    // Create a mock AIService
-    final mockAIService = MockAIService();
-
-    // Mock the AI availability checks
-    when(mockAIService.checkAIAvailability()).thenAnswer((_) async => true);
-    when(mockAIService.checkOpenAIAvailability()).thenAnswer((_) async => true);
-
+  testWidgets('PlayerSetupScreen navigates to GameScreen when play button is tapped',
+      (WidgetTester tester) async {
     // Build the widget with the mocked AIService
     await tester.pumpWidget(
       MaterialApp(
@@ -161,5 +155,28 @@ void main() {
 
     // Verify navigation to GameScreen
     expect(find.byType(GameScreen), findsOneWidget);
+  });
+
+  testWidgets('PlayerSetupScreen displays load game dialog on button tap',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlayerSetupScreen(
+          aiService: mockAIService,
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Tap the load game button
+    await tester.tap(find.byIcon(Icons.folder_open));
+    await tester.pumpAndSettle();
+
+    // Verify dialog appears
+    expect(find.text('Load Game'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
   });
 }

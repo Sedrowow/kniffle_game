@@ -64,20 +64,26 @@ class PlayerState {
         'name': name,
         'isBot': isBot,
         'botDifficulty': botDifficulty,
-        'scores': scores.map((score) => Map<String, dynamic>.from(score)).toList(),
+        'scores': scores.map((scoreMap) => 
+          scoreMap.map((key, value) => MapEntry(key, value))).toList(),
         'bonus': bonus,
       };
 
   factory PlayerState.fromJson(Map<String, dynamic> json) {
+    var scoresList = (json['scores'] as List).map((scoreMap) {
+      Map<String, int?> convertedMap = {};
+      (scoreMap as Map<String, dynamic>).forEach((key, value) {
+        convertedMap[key] = value as int?;
+      });
+      return convertedMap;
+    }).toList();
+
     return PlayerState(
       name: json['name'],
       isBot: json['isBot'],
       botDifficulty: json['botDifficulty'],
-      scores: (json['scores'] as List).map((s) => 
-        Map<String, int?>.from(s.map((key, value) => 
-          MapEntry(key.toString(), value as int?))
-        )).toList(),
-      bonus: json['bonus'],
+      scores: scoresList,
+      bonus: json['bonus'] ?? 0,
     );
   }
 }

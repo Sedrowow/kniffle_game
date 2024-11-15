@@ -1,4 +1,3 @@
-// main.dart
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -77,8 +76,16 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
               : BotDifficulty.easy)
           .toList();
     } else {
-      _checkAIAvailability();
-      _checkOpenAIAvailability();
+      _checkAIAvailability().then((_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+      _checkOpenAIAvailability().then((_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
       controllers =
           List.generate(playerCount, (index) => TextEditingController());
       isBot = List.generate(playerCount, (index) => false);
@@ -116,7 +123,7 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
     super.dispose();
   }
 
-  void _checkOpenAIAvailability() async {
+  Future<void> _checkOpenAIAvailability() async {
     bool availability = await widget.aiService.checkOpenAIAvailability();
     if (mounted) {
       setState(() {
@@ -125,13 +132,14 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
     }
   }
 
-  void _checkAIAvailability() async {
+  Future<bool> _checkAIAvailability() async {
     bool availability = await widget.aiService.checkAIAvailability();
     if (mounted) {
       setState(() {
         isAIAvailable = availability;
       });
     }
+    return availability;
   }
 
   void updatePlayerCount(int newCount) {

@@ -36,9 +36,25 @@ class GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
-    scorecards = widget.players
-        .map((player) => Scorecard(playerName: player['name']))
-        .toList();
+    
+    if (widget.loadedGame != null) {
+      // Initialize with loaded game state
+      currentRound = widget.loadedGame!.currentRound;
+      currentPlayerIndex = widget.loadedGame!.currentPlayerIndex;
+      actionLog = List.from(widget.loadedGame!.actionLog);
+      
+      // Initialize scorecards with saved scores
+      scorecards = widget.loadedGame!.players.map((playerState) {
+        var scorecard = Scorecard(playerName: playerState.name);
+        scorecard.scores = List.from(playerState.scores); // Copy saved scores
+        scorecard.bonus = playerState.bonus; // Copy saved bonus
+        return scorecard;
+      }).toList();
+    } else {
+      scorecards = widget.players
+          .map((player) => Scorecard(playerName: player['name']))
+          .toList();
+    }
 
     // Start the game by checking if the first player is a bot
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -392,10 +408,10 @@ class GameScreenState extends State<GameScreen> {
         name: s.playerName,
         isBot: widget.players[scorecards.indexOf(s)]['isBot'],
         botDifficulty: widget.players[scorecards.indexOf(s)]['botDifficulty'],
-        scores: s.scores,
+        scores: List.from(s.scores), // Create a deep copy of scores
         bonus: s.bonus,
       )).toList(),
-      actionLog: actionLog,
+      actionLog: List.from(actionLog),
     );
     
     await SaveGameManager.saveGame(saveGame);

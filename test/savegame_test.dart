@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/annotations.dart';
 import 'package:kniffle_game/savegame.dart';
 
+@GenerateMocks([SaveGameManager])
 void main() {
   group('SaveGame', () {
     test('serialization', () {

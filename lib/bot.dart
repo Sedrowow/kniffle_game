@@ -9,7 +9,7 @@ enum BotDifficulty { easy, medium, hard, ai, openai }
 
 class Bot {
   // Ensure environment variables are loaded before creating an instance of Bot
-  final String? apiKey = dotenv.env['OPENAI_API_KEY'];
+  late final String? apiKey = dotenv.env['OPENAI_API_KEY'];
   final String name;
   final BotDifficulty difficulty;
   final Random _random = Random();
@@ -115,19 +115,21 @@ class Bot {
 You are a Kniffel AI bot deciding which dice to keep.
 
 **Important Notes:**
-- Interactions must only use the commands exactly as provided.
+- After specifying which dice to keep, they will be automatically rolled.
 - You can keep any dice by specifying their positions (1 to 5).
-- You can only keep dice that are not already kept.
+- To keep previously kept dice, you must include them in your new KeepDice command.
+- After your decision, the non-kept dice will be automatically rolled.
 
-Your current dice are: ${dice.join(', ')}.
-Kept dice positions: ${_getKeptDicePositions(diceKept)}.
+Current dice (position: value):
+${_getDicePositionsString(dice)}
+Currently kept positions: ${_getKeptDicePositions(diceKept)}
 
 Available commands:
 - KeepDice # (where # is the dice position 1 to 5; you can keep multiple dice by using KeepDice #,#,#)
-- RollDice
+- EnterScore <Category>
 - SkipEntry
 
-Decide which dice to keep by using the commands.
+Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
 ''';
 
     // Reset all kept dice
@@ -182,16 +184,17 @@ Remember to use the commands exactly as provided.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding whether to roll again.
+You are a Kniffel AI bot deciding your next action.
 
 **Important Notes:**
-- Interactions must only use the commands exactly as provided.
-- You can only roll again if you have rolls remaining (maximum 3 rolls per turn).
-- If you decide to skip entry, your turn will end immediately with no score.
-- If you decide not to roll, you must proceed to scoring or skip entry.
+- To roll again, use KeepDice to specify which dice to keep (including previously kept dice).
+- After specifying dice to keep, remaining dice will automatically roll.
+- If you want to score, use EnterScore with a category.
+- Maximum 3 rolls per turn.
 
-Your current dice are: ${dice.join(', ')}.
-Kept dice positions: ${_getKeptDicePositions(diceKept)}.
+Current dice (position: value):
+${_getDicePositionsString(dice)}
+Currently kept positions: ${_getKeptDicePositions(diceKept)}
 Roll count: $rollCount
 
 **Available Categories:**
@@ -201,11 +204,11 @@ ${availableCategories.join(', ')}
 ${validCategories.join(', ')}
 
 Available commands:
-- RollDice
+- KeepDice #,#,# (to keep dice and roll again)
 - EnterScore <Category>
 - SkipEntry
 
-Decide whether to roll again, proceed to scoring with EnterScore, or skip your entry with SkipEntry by using ONE of the commands.
+Decide whether to keep dice and roll again, or proceed to scoring.
 ''';
 
     String response;
@@ -215,54 +218,18 @@ Decide whether to roll again, proceed to scoring with EnterScore, or skip your e
       response = await _sendToOLLAMA(instructions);
       print('AI response: $response');
 
-      var decision = _parseRollDecision(response);
-
-      if (decision == null) {
-        // Invalid decision
-        instructions += '''
-
-Your response was invalid. Please use ONE of the available commands.
-
-Available commands:
-- RollDice
-- EnterScore <Category>
-- SkipEntry
-
-Remember to use the commands exactly as provided.
-''';
-      } else if (decision.skipEntry) {
-        // If the AI decides to skip entry, immediately return the decision
-        return AIDecision(rollAgain: false, skipEntry: true);
-      } else if (decision.rollAgain && rollCount >= 3) {
-        // Cannot roll more than 3 times
-        instructions += '''
-
-You have already rolled the maximum number of times (3). You must proceed to scoring or skip entry.
-
-Available commands:
-- EnterScore <Category>
-- SkipEntry
-
-Remember to use the commands exactly as provided.
-''';
-      } else if (decision.categoryToScore != null) {
-        // AI chose to enter a score, validate the category
-        String category = decision.categoryToScore!;
-        if (!availableCategories.contains(category)) {
-          instructions += '''
-
-The category you selected ("$category") is not available. Please choose a valid category or skip entry.
-
-Available Categories:
-${availableCategories.join(', ')}
-
-Remember to use the commands exactly as provided.
-''';
-        } else {
-          return decision; // Valid category selected
+      if (response.toLowerCase().contains('keepdice')) {
+        List<int> diceToKeep = _parseKeepDiceResponse(response, diceKept);
+        if (diceToKeep.isNotEmpty) {
+          return AIDecision(rollAgain: true);
         }
-      } else if (decision.rollAgain && rollCount < 3) {
-        return decision; // Valid roll decision
+      } else {
+        var decision = _parseRollDecision(response);
+        if (decision != null) {
+          if (decision.categoryToScore != null || decision.skipEntry) {
+            return decision;
+          }
+        }
       }
 
       attempts++;
@@ -380,19 +347,21 @@ ${validCategories.join(', ')}
 You are a Kniffel AI bot deciding which dice to keep.
 
 **Important Notes:**
-- Interactions must only use the commands exactly as provided.
+- After specifying which dice to keep, they will be automatically rolled.
 - You can keep any dice by specifying their positions (1 to 5).
-- For each keeping decision, you must reenter all kept dice positions.
+- To keep previously kept dice, you must include them in your new KeepDice command.
+- After your decision, the non-kept dice will be automatically rolled.
 
-Your current dice are: ${dice.join(',')}.
+Current dice (position: value):
+${_getDicePositionsString(dice)}
+Currently kept positions: ${_getKeptDicePositions(diceKept)}
 
 Available commands:
-- KeepDice # (where # is the dice position 1 to 5; you can keep multiple dice by using KeepDice #,#,# (never use whitespaces for multiple dices and consider to reenter already kept dices if further keeping is required))
-- RollDice
+- KeepDice # (where # is the dice position 1 to 5; you can keep multiple dice by using KeepDice #,#,#)
 - EnterScore <Category>
 - SkipEntry
 
-Decide which dice to keep by using the commands.
+Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
 ''';
 
     // Reset all kept dice
@@ -447,15 +416,17 @@ Remember to use the commands exactly as provided.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding whether to roll again.
+You are a Kniffel AI bot deciding your next action.
 
 **Important Notes:**
-- Interactions must only use the commands exactly as provided.
-- You can only roll again if you have rolls remaining (maximum 3 rolls per turn).
-- If you decide not to roll, you must proceed to scoring with EnterScore.
+- To roll again, use KeepDice to specify which dice to keep (including previously kept dice).
+- After specifying dice to keep, remaining dice will automatically roll.
+- If you want to score, use EnterScore with a category.
+- Maximum 3 rolls per turn.
 
-Your current dice are: ${dice.join(', ')}.
-Kept dice positions: ${_getKeptDicePositions(diceKept)}.
+Current dice (position: value):
+${_getDicePositionsString(dice)}
+Currently kept positions: ${_getKeptDicePositions(diceKept)}
 Roll count: $rollCount
 
 **Available Categories:**
@@ -465,11 +436,11 @@ ${availableCategories.join(', ')}
 ${validCategories.join(', ')}
 
 Available commands:
-- RollDice
+- KeepDice #,#,# (to keep dice and roll again)
 - EnterScore <Category>
 - SkipEntry
 
-Decide whether to roll again or proceed to scoring by using the commands.
+Decide whether to keep dice and roll again, or proceed to scoring.
 ''';
 
     String response;
@@ -479,100 +450,25 @@ Decide whether to roll again or proceed to scoring by using the commands.
       response = await _sendToOpenAI(instructions);
       print('OpenAI response: $response');
 
-      var decision = _parseRollDecision(response);
-
-      if (decision == null) {
-        // Invalid decision
-        instructions += '''
-
-Your response was invalid. Please use one of the available commands.
-
-Available commands:
-- RollDice
-- EnterScore <Category>
-- SkipEntry
-
-Remember to use the commands exactly as provided.
-''';
-      } else if (decision.rollAgain && rollCount >= 3) {
-        // Cannot roll more than 3 times
-        instructions += '''
-
-You have already rolled the maximum number of times (3). You must proceed to scoring.
-
-Available commands:
-- EnterScore <Category>
-- SkipEntry
-
-Remember to use the commands exactly as provided.
-''';
-      } else if (decision.categoryToScore != null) {
-        // AI chose to enter a score, validate the category
-        String category = decision.categoryToScore!;
-        int score = _calculatePotentialScore(category, dice);
-
-        if (!availableCategories.contains(category)) {
-          // Invalid category
-          instructions += '''
-
-The category you selected ("$category") is not available. Please choose a valid category from the list.
-
-Available Categories:
-${availableCategories.join(', ')}
-
-Remember to use the commands exactly as provided.
-''';
-        } else if (score == 0) {
-          // Score is zero or invalid
-          instructions += '''
-
-You have chosen to enter a category where the score would be zero or your dice do not fulfill the requirements.
-
-Please choose another category from the valid categories.
-
-Valid Categories:
-${validCategories.join(', ')}
-
-Remember to use the commands exactly as provided.
-''';
-        } else {
-          // Inform AI of the score and ask for confirmation
-          instructions += '''
-
-You will enter the category "$category" with a score of $score.
-
-To confirm, re-enter the command: EnterScore $category
-
-If you want to choose a different category, please select from the valid categories.
-
-Valid Categories:
-${validCategories.join(', ')}
-''';
-          // Get confirmation
-          response = await _sendToOpenAI(instructions);
-          print('OpenAI response: $response');
-
-          var confirmationDecision = _parseRollDecision(response);
-
-          if (confirmationDecision?.categoryToScore == category) {
-            // Confirmed
-            return AIDecision(rollAgain: false, categoryToScore: category);
-          } else {
-            // AI chose a different action, loop again
-            continue;
+      if (response.toLowerCase().contains('keepdice')) {
+        List<int> diceToKeep = _parseKeepDiceResponse(response, diceKept);
+        if (diceToKeep.isNotEmpty) {
+          return AIDecision(rollAgain: true);
+        }
+      } else {
+        var decision = _parseRollDecision(response);
+        if (decision != null) {
+          if (decision.categoryToScore != null || decision.skipEntry) {
+            return decision;
           }
         }
-      } else if (decision.skipEntry) {
-        return AIDecision(rollAgain: false, skipEntry: true);
-      } else if (decision.rollAgain) {
-        return AIDecision(rollAgain: true);
       }
 
       attempts++;
     } while (attempts < 3);
 
-    // Default to not rolling again
-    return AIDecision(rollAgain: false);
+    // After maximum attempts, default to skipping entry
+    return AIDecision(rollAgain: false, skipEntry: true);
   }
 
   Future<String> _openaiDecideCategoryToScore(
@@ -748,6 +644,7 @@ ${validCategories.join(', ')}
               'llama3.2', // Replace with your actual model name if different
           'prompt': prompt,
           'stream': false, // Set stream to false to get a single response
+          'max_tokens': 150,
         }),
       );
 
@@ -764,44 +661,41 @@ ${validCategories.join(', ')}
     }
   }
 
-  // Helper methods to parse AI responses
-  List<int> _parseKeepDiceResponse(String response, List<bool> diceKept) {
-    RegExp regex = RegExp(r'KeepDice\s+([\d,]+)');
-    Match? match = regex.firstMatch(response);
+List<int> _parseKeepDiceResponse(String response, List<bool> diceKept) {
+  RegExp regex = RegExp(r'KeepDice\s+((?:\d+\s*,\s*)*\d+)');
+  Match? match = regex.firstMatch(response);
 
-    if (match != null) {
-      List<int> indices = match
-          .group(1)!
-          .split(',')
-          .map((e) => e.trim()) // Remove any additional whitespaces
-          .where((e) => e.isNotEmpty) // Ensure no empty strings
-          .map((e) => int.parse(e) - 1)
-          .toList();
+  if (match != null) {
+    List<int> indices = match
+        .group(1)!
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .map((e) => int.parse(e) - 1)
+        .toList();
 
-      // Reset diceKept to no dice being kept
-      diceKept = List<bool>.filled(diceKept.length, false);
-
-      // Filter out invalid indices and update diceKept
-      indices = indices
-          .where((index) => index >= 0 && index < diceKept.length)
-          .toList();
-      for (int index in indices) {
-        diceKept[index] = true;
-      }
-
-      return indices;
+    // Reset diceKept to no dice being kept
+    for (int i = 0; i < diceKept.length; i++) {
+      diceKept[i] = false;
     }
 
-    // If parsing fails, return empty list
+    // Update diceKept based on indices
+    for (int index in indices) {
+      if (index >= 0 && index < diceKept.length) {
+        diceKept[index] = true;
+      }
+    }
+
+    return indices;
+  } else {
+    // Handle invalid response
     return [];
   }
-
+}
   AIDecision? _parseRollDecision(String response) {
     response = response.trim().toLowerCase();
 
-    if (response.contains('rolldice')) {
-      return AIDecision(rollAgain: true);
-    } else if (response.contains('skipentry')) {
+    if (response.contains('skipentry')) {
       return AIDecision(rollAgain: false, skipEntry: true);
     } else {
       RegExp regex = RegExp(r'enterscore\s+(\w+)');
@@ -844,6 +738,13 @@ ${validCategories.join(', ')}
       if (diceKept[i]) positions.add(i + 1);
     }
     return positions.isNotEmpty ? positions.join(', ') : 'None';
+  }
+
+  String _getDicePositionsString(List<int> dice) {
+    return dice.asMap()
+        .entries
+        .map((e) => 'Die ${e.key + 1}: ${e.value}')
+        .join(', ');
   }
 
   Bot.namedConstructor(this.agentId,

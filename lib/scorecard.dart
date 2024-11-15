@@ -109,11 +109,11 @@ class Scorecard {
         bool hasPair = counts.values.contains(2);
         return hasThreeOfAKind && hasPair ? 25 : 0;
       case 'smallStraight':
-        var sortedDice = List<int>.from(dice)..sort();
-        for (int i = 0; i < sortedDice.length - 3; i++) {
-          if (sortedDice[i + 1] == sortedDice[i] + 1 &&
-              sortedDice[i + 2] == sortedDice[i] + 2 &&
-              sortedDice[i + 3] == sortedDice[i] + 3) {
+        var uniqueDice = dice.toSet().toList()..sort();
+        for (int i = 0; i < uniqueDice.length - 3; i++) {
+          if (uniqueDice[i + 1] == uniqueDice[i] + 1 &&
+              uniqueDice[i + 2] == uniqueDice[i] + 2 &&
+              uniqueDice[i + 3] == uniqueDice[i] + 3) {
             return 30;
           }
         }
@@ -177,11 +177,11 @@ class Scorecard {
         bool hasPair = counts.values.contains(2);
         return hasThreeOfAKind && hasPair;
       case 'smallStraight':
-        var sortedDice = List<int>.from(dice)..sort();
-        for (int i = 0; i < sortedDice.length - 3; i++) {
-          if (sortedDice[i + 1] == sortedDice[i] + 1 &&
-              sortedDice[i + 2] == sortedDice[i] + 2 &&
-              sortedDice[i + 3] == sortedDice[i] + 3) {
+        var uniqueDice = dice.toSet().toList()..sort();
+        for (int i = 0; i < uniqueDice.length - 3; i++) {
+          if (uniqueDice[i + 1] == uniqueDice[i] + 1 &&
+              uniqueDice[i + 2] == uniqueDice[i] + 2 &&
+              uniqueDice[i + 3] == uniqueDice[i] + 3) {
             return true;
           }
         }
