@@ -24,29 +24,38 @@ class Bot {
     switch (difficulty) {
       case BotDifficulty.easy:
 
-        // Easy: Randomly decide which dice to keep
+        // Easy: Randomly decide which dice to keep (previously medium logic)
 
         return List.generate(dice.length, (_) => _random.nextBool());
 
       case BotDifficulty.medium:
 
-        // Medium: Randomly decide which dice to keep
+        // Medium: Previous hard logic (aim for best value)
 
-        return List.generate(dice.length, (_) => _random.nextBool());
+        return _decideBestDiceToKeep(dice);
 
       case BotDifficulty.hard:
 
-        // Hard: Aim for the best value (e.g., Kniffel)
+        // Hard: New strategic logic
 
-        return _decideBestDiceToKeep(dice);
+        return _decideStrategicDiceToKeep(scores, dice);
 
       case BotDifficulty.ai:
 
         // AI: Use OLLAMA service to decide
 
+        AIDecision decision = await _aiDecideToRoll(scores, dice, diceKept, 0);
+        if (decision.rollAgain && decision.keptDice != null) {
+          return decision.keptDice!;
+        }
+        
         return await _aiDecideDiceToKeep(scores, dice, diceKept);
 
       case BotDifficulty.openai:
+        AIDecision decision = await _openaiDecideToRoll(scores, dice, diceKept, 0);
+        if (decision.rollAgain && decision.keptDice != null) {
+          return decision.keptDice!;
+        }
         return await _openaiDecideDiceToKeep(scores, dice, diceKept);
 
       default:
@@ -68,12 +77,13 @@ class Bot {
         // Hard: Roll if the current score is not the optimal score
         return !_isOptimalScore(scores, dice);
       case BotDifficulty.ai:
-        // AI: Use AI service to decide
-        AIDecision decision = await _aiDecideToRoll(scores, dice, diceToKeep, rollCount);
-        return decision.rollAgain;
       case BotDifficulty.openai:
-        AIDecision decision = await _openaiDecideToRoll(scores, dice, diceToKeep, rollCount);
-        return decision.rollAgain;
+        // If all dice are false, it means the AI wants to score
+        List<bool> decidedDice = await decideDiceToKeep(scores, dice, diceToKeep);
+        if (decidedDice.every((kept) => !kept)) {
+          return false; // Don't roll, proceed to scoring
+        }
+        return true; // Continue rolling with kept dice
       default:
         return true;
     }
@@ -95,6 +105,7 @@ class Bot {
         availableCategories.shuffle();
         return availableCategories.first;
       case BotDifficulty.medium:
+        return _decideBestCategoryToScore(scores, dice, availableCategories);
       case BotDifficulty.hard:
         // Medium and Hard: Choose the category with the highest potential score
         return _decideBestCategoryToScore(scores, dice, availableCategories);
@@ -112,11 +123,11 @@ class Bot {
   Future<List<bool>> _aiDecideDiceToKeep(
       Map<String, int?> scores, List<int> dice, List<bool> diceKept) async {
     String instructions = '''
-You are a Kniffel AI bot deciding which dice to keep.
+You are a Yatzy AI bot deciding which dice to keep.
 
 **Important Notes:**
 - After specifying which dice to keep, they will be automatically rolled.
-- You can keep any dice by specifying their positions (1 to 5).
+- You can keep any dice by specifying their positions seperated by commas only (1 to 5).
 - To keep previously kept dice, you must include them in your new KeepDice command.
 - After your decision, the non-kept dice will be automatically rolled.
 
@@ -132,14 +143,36 @@ Available commands:
 Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
 ''';
 
-    // Reset all kept dice
+    print('\n=== OLLAMA Dice Keep Decision ===');
+    print('Prompt:\n$instructions');
+
+    // Rest of the method remains the same, just add print statements
     List<bool> newDiceKept = List.filled(diceKept.length, false);
     String response;
     int attempts = 0;
 
     do {
       response = await _sendToOLLAMA(instructions);
-      print('AI response: $response');
+      print('AI Response (Attempt ${attempts + 1}):\n$response');
+
+      if (response.toLowerCase().contains('enterscore')) {
+        // If the AI wants to score, return empty array to signal this intent
+        String category = _parseCategoryResponse(response, scores.keys.toList());
+        if (category.isNotEmpty) {
+          // Confirm the score entry
+          instructions += '''
+You chose to enter score for category "$category".
+To confirm, please re-enter the command: EnterScore $category
+''';
+          response = await _sendToOLLAMA(instructions);
+          print('AI Confirmation Response:\n$response');
+          String confirmation = _parseCategoryResponse(response, scores.keys.toList());
+          if (confirmation == category) {
+            // Return empty array to signal scoring intent
+            return List.filled(dice.length, false);
+          }
+        }
+      }
 
       List<int> diceToKeep = _parseKeepDiceResponse(response, newDiceKept);
 
@@ -184,7 +217,7 @@ Remember to use the commands exactly as provided.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding your next action.
+You are a Yatzy AI bot deciding your next action.
 
 **Important Notes:**
 - To roll again, use KeepDice to specify which dice to keep (including previously kept dice).
@@ -211,17 +244,30 @@ Available commands:
 Decide whether to keep dice and roll again, or proceed to scoring.
 ''';
 
+    print('\n=== OLLAMA Roll Decision ===');
+    print('Prompt:\n$instructions');
+
     String response;
     int attempts = 0;
 
     do {
       response = await _sendToOLLAMA(instructions);
-      print('AI response: $response');
+      print('AI Response (Attempt ${attempts + 1}):\n$response');
 
       if (response.toLowerCase().contains('keepdice')) {
         List<int> diceToKeep = _parseKeepDiceResponse(response, diceKept);
         if (diceToKeep.isNotEmpty) {
-          return AIDecision(rollAgain: true);
+          rollCount++;
+          // Update the diceKept array based on the response
+          for (int i = 0; i < diceKept.length; i++) {
+            diceKept[i] = false;
+          }
+          for (int index in diceToKeep) {
+            if (index >= 0 && index < diceKept.length) {
+              diceKept[index] = true;
+            }
+          }
+          return AIDecision(rollAgain: true, keptDice: diceKept);
         }
       } else {
         var decision = _parseRollDecision(response);
@@ -246,7 +292,7 @@ Decide whether to keep dice and roll again, or proceed to scoring.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding which category to score.
+You are a Yatzy AI bot deciding which category to score.
 
 **Important Notes:**
 - Interactions must only use the commands exactly as provided.
@@ -267,6 +313,9 @@ Available commands:
 
 Decide which single category to score or whether to skip and get no score by using the commands.
 ''';
+
+    print('\n=== OLLAMA Category Score Decision ===');
+    print('Prompt:\n$instructions');
 
     String response;
     String category;
@@ -292,6 +341,7 @@ ${availableCategories.join(', ')}
 Remember to use the commands exactly as provided.
 ''';
       } else if (score == 0) {
+        print('Score would be zero for category: $category');
         // Score is zero or invalid
         instructions += '''
 
@@ -344,7 +394,7 @@ ${validCategories.join(', ')}
   Future<List<bool>> _openaiDecideDiceToKeep(
       Map<String, int?> scores, List<int> dice, List<bool> diceKept) async {
     String instructions = '''
-You are a Kniffel AI bot deciding which dice to keep.
+You are a Yatzy AI bot deciding which dice to keep.
 
 **Important Notes:**
 - After specifying which dice to keep, they will be automatically rolled.
@@ -364,7 +414,10 @@ Available commands:
 Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
 ''';
 
-    // Reset all kept dice
+    print('\n=== OpenAI Dice Keep Decision ===');
+    print('Prompt:\n$instructions');
+
+    // Rest of implementation with added print statements
     List<bool> newDiceKept = List.filled(diceKept.length, false);
     String response;
     int attempts = 0;
@@ -372,6 +425,25 @@ Decide which dice to keep (or keep the same dice) by using KeepDice command to c
     do {
       response = await _sendToOpenAI(instructions);
       print('OpenAI response: $response');
+
+      if (response.toLowerCase().contains('enterscore')) {
+        // If the AI wants to score, return empty array to signal this intent
+        String category = _parseCategoryResponse(response, scores.keys.toList());
+        if (category.isNotEmpty) {
+          // Confirm the score entry
+          instructions += '''
+You chose to enter score for category "$category".
+To confirm, please re-enter the command: EnterScore $category
+''';
+          response = await _sendToOpenAI(instructions);
+          print('OpenAI Confirmation Response:\n$response');
+          String confirmation = _parseCategoryResponse(response, scores.keys.toList());
+          if (confirmation == category) {
+            // Return empty array to signal scoring intent
+            return List.filled(dice.length, false);
+          }
+        }
+      }
 
       List<int> diceToKeep = _parseKeepDiceResponse(response, newDiceKept);
 
@@ -416,7 +488,7 @@ Remember to use the commands exactly as provided.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding your next action.
+You are a Yatzy AI bot deciding your next action.
 
 **Important Notes:**
 - To roll again, use KeepDice to specify which dice to keep (including previously kept dice).
@@ -443,17 +515,29 @@ Available commands:
 Decide whether to keep dice and roll again, or proceed to scoring.
 ''';
 
+    print('\n=== OpenAI Roll Decision ===');
+    print('Prompt:\n$instructions');
+
     String response;
     int attempts = 0;
 
     do {
       response = await _sendToOpenAI(instructions);
-      print('OpenAI response: $response');
+      print('OpenAI Response (Attempt ${attempts + 1}):\n$response');
 
       if (response.toLowerCase().contains('keepdice')) {
         List<int> diceToKeep = _parseKeepDiceResponse(response, diceKept);
         if (diceToKeep.isNotEmpty) {
-          return AIDecision(rollAgain: true);
+          // Update the diceKept array based on the response
+          for (int i = 0; i < diceKept.length; i++) {
+            diceKept[i] = false;
+          }
+          for (int index in diceToKeep) {
+            if (index >= 0 && index < diceKept.length) {
+              diceKept[index] = true;
+            }
+          }
+          return AIDecision(rollAgain: true, keptDice: diceKept);
         }
       } else {
         var decision = _parseRollDecision(response);
@@ -478,7 +562,7 @@ Decide whether to keep dice and roll again, or proceed to scoring.
     List<String> validCategories = _getValidCategories(scores, dice);
 
     String instructions = '''
-You are a Kniffel AI bot deciding which category to score.
+You are a Yatzy AI bot deciding which category to score.
 
 **Important Notes:**
 - Interactions must only use the commands exactly as provided.
@@ -499,6 +583,9 @@ Available commands:
 
 Decide which one category to score or whether to skip by using the commands.
 ''';
+
+    print('\n=== OpenAI Category Score Decision ===');
+    print('Prompt:\n$instructions');
 
     String response;
     String category;
@@ -524,6 +611,7 @@ ${availableCategories.join(', ')}
 Remember to use the commands exactly as provided.
 ''';
       } else if (score == 0) {
+        print('Score would be zero for category: $category');
         // Score is zero or invalid
         instructions += '''
 
@@ -575,6 +663,9 @@ ${validCategories.join(', ')}
   Future<String> _sendToOpenAI(String prompt) async {
     const String apiUrl = 'https://api.openai.com/v1/chat/completions';
 
+    print('\n=== OpenAI API Request ===');
+    print('Sending prompt to OpenAI API...');
+
     if (apiKey == null) {
       print('OpenAI API key is not set.');
       return '';
@@ -600,6 +691,7 @@ ${validCategories.join(', ')}
       if (response.statusCode == 200) {
         var data = jsonDecode(response.body);
         String content = data['choices'][0]['message']['content'];
+        print('OpenAI Response:\n$content');
         return content;
       } else {
         print('Failed to get response from OpenAI: ${response.statusCode}');
@@ -635,13 +727,16 @@ ${validCategories.join(', ')}
     // OLLAMA service endpoint
     String url = 'http://127.0.0.1:11434/api/generate';
 
+    print('\n=== OLLAMA API Request ===');
+    print('Sending prompt to OLLAMA API...');
+
     try {
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'model':
-              'llama3.2', // Replace with your actual model name if different
+              'llatzy', // Replace with your actual model name if different
           'prompt': prompt,
           'stream': false, // Set stream to false to get a single response
           'max_tokens': 150,
@@ -650,8 +745,11 @@ ${validCategories.join(', ')}
 
       if (response.statusCode == 200) {
         var data = jsonDecode(response.body);
-        return data['response'] ?? '';
+        String content = data['response'] ?? '';
+        print('OLLAMA Response:\n$content');
+        return content;
       } else {
+        print('Failed to get response from OLLAMA: ${response.statusCode}');
         throw Exception('Failed to get response from OLLAMA service.');
       }
     } catch (e) {
@@ -743,7 +841,7 @@ List<int> _parseKeepDiceResponse(String response, List<bool> diceKept) {
   String _getDicePositionsString(List<int> dice) {
     return dice.asMap()
         .entries
-        .map((e) => 'Die ${e.key + 1}: ${e.value}')
+        .map((e) => 'D${e.key + 1}: ${e.value}')
         .join(', ');
   }
 
@@ -755,11 +853,13 @@ class AIDecision {
   final bool rollAgain;
   final String? categoryToScore; // Non-null if AI chooses to enter a score
   final bool skipEntry;
+  final List<bool>? keptDice;  // Add this field
 
   AIDecision({
     required this.rollAgain,
     this.categoryToScore,
     this.skipEntry = false,
+    this.keptDice,  // Add this parameter
   });
 }
 
@@ -774,7 +874,7 @@ bool _isHighestPossibleScore(Map<String, int?> scores, List<int> dice) {
       _decideBestCategoryToScore(scores, dice, availableCategories);
   int bestScore = _calculatePotentialScore(bestCategory, dice);
   return bestScore ==
-      50; // Example: 50 is the highest possible score for Kniffel
+      50; // Example: 50 is the highest possible score for Yatzy
 }
 
 // Check if the current score is the optimal score
@@ -862,6 +962,28 @@ int _calculatePotentialScore(String category, List<int> dice) {
   }
 }
 
+// Decide the best category to score for hard difficulty
+String _decideBestCategoryToScoreStrategic(Map<String, int?> scores, List<int> dice, List<String> availableCategories) {
+  // Example logic: Choose the category with the highest potential score
+  Map<String, int> potentialScores = {};
+
+  for (String category in availableCategories) {
+    potentialScores[category] = _calculatePotentialScore(category, dice);
+  }
+
+  String bestCategory = availableCategories.first;
+  int highestScore = potentialScores[bestCategory] ?? 0;
+
+  for (String category in availableCategories) {
+    if ((potentialScores[category] ?? 0) > highestScore) {
+      bestCategory = category;
+      highestScore = potentialScores[category] ?? 0;
+    }
+  }
+
+  return bestCategory;
+}
+
 // Decide the best dice to keep for hard difficulty
 List<bool> _decideBestDiceToKeep(List<int> dice) {
   // Example logic: Keep the dice with the highest frequency
@@ -874,4 +996,216 @@ List<bool> _decideBestDiceToKeep(List<int> dice) {
       frequency.keys.firstWhere((key) => frequency[key] == maxFrequency);
 
   return dice.map((die) => die == targetValue).toList();
+}
+
+  // Add this new method for strategic dice keeping
+  List<bool> _decideStrategicDiceToKeep(Map<String, int?> scores, List<int> dice) {
+  List<bool> bestKeep = List.filled(dice.length, false);
+  Map<int, int> frequency = {};
+  for (var die in dice) {
+    frequency[die] = (frequency[die] ?? 0) + 1;
+  }
+
+  var sortedUniqueDice = dice.toSet().toList()..sort();
+
+  // First, evaluate high-value patterns
+  if (frequency.values.any((count) => count >= 4)) {
+    // Keep four of a kind
+    int valueToKeep = frequency.entries
+        .firstWhere((entry) => entry.value >= 4)
+        .key;
+    return dice.map((die) => die == valueToKeep).toList();
+  } 
+  
+  if (_isYahtzeeInProgress(frequency)) {
+    // Keep three or more of a kind if Kniffel is still available
+    int valueToKeep = frequency.entries
+        .firstWhere((entry) => entry.value >= 3)
+        .key;
+    return dice.map((die) => die == valueToKeep).toList();
+  }
+  
+  if (_isFullHouseInProgress(frequency)) {
+    // Keep dice that contribute to full house
+    return _keepFullHouseDice(dice, frequency);
+  }
+
+  if (_isLargeStraightPossible(sortedUniqueDice)) {
+    // Keep dice that could form a large straight
+    return _keepStraightDice(dice, true);
+  }
+  
+  if (_isSmallStraightPossible(sortedUniqueDice)) {
+    // Keep dice that could form a small straight
+    return _keepStraightDice(dice, false);
+  }
+
+  // If nothing special, focus on upper section scoring
+  int bestValue = _findBestUpperSectionValue(scores, frequency);
+  if (bestValue > 0) {
+    // Keep only the dice with the best value for upper section
+    for (int i = 0; i < dice.length; i++) {
+      if (dice[i] == bestValue) {
+        bestKeep[i] = true;
+      }
+    }
+    return bestKeep;
+  }
+
+  // If no clear strategy, keep highest frequency dice
+  if (frequency.isNotEmpty) {
+    var maxFreq = frequency.values.reduce((a, b) => a > b ? a : b);
+    if (maxFreq >= 2) {
+      int valueToKeep = frequency.entries
+          .firstWhere((entry) => entry.value == maxFreq)
+          .key;
+      return dice.map((die) => die == valueToKeep).toList();
+    }
+  }
+
+  // If all else fails, keep highest value dice
+  int highestValue = dice.reduce((a, b) => a > b ? a : b);
+  for (int i = 0; i < dice.length; i++) {
+    if (dice[i] == highestValue) {
+      bestKeep[i] = true;
+    }
+  }
+  return bestKeep;
+}
+
+bool _isYahtzeeInProgress(Map<int, int> frequency) {
+  return frequency.values.any((count) => count >= 3);
+}
+
+bool _isFullHouseInProgress(Map<int, int> frequency) {
+  return (frequency.values.any((count) => count >= 3) && 
+          frequency.values.any((count) => count == 2)) ||
+         (frequency.values.where((count) => count >= 2).length >= 2);
+}
+
+List<bool> _keepFullHouseDice(List<int> dice, Map<int, int> frequency) {
+  List<bool> keep = List.filled(dice.length, false);
+  
+  // Find three of a kind first
+  var threeOfAKindValue = frequency.entries
+      .firstWhere((entry) => entry.value >= 3, 
+                 orElse: () => MapEntry(0, 0))
+      .key;
+      
+  // Find pair
+  var pairValue = frequency.entries
+      .firstWhere((entry) => entry.value == 2 && entry.key != threeOfAKindValue,
+                 orElse: () => MapEntry(0, 0))
+      .key;
+
+  // If we don't have a three of a kind yet, keep the highest frequency pair
+  if (threeOfAKindValue == 0) {
+    var pairs = frequency.entries.where((entry) => entry.value >= 2).toList();
+    if (pairs.isNotEmpty) {
+      pairs.sort((a, b) => a.key.compareTo(b.key));
+      threeOfAKindValue = pairs.last.key;
+    }
+  }
+
+  // Mark dice to keep
+  for (int i = 0; i < dice.length; i++) {
+    if (dice[i] == threeOfAKindValue || dice[i] == pairValue) {
+      keep[i] = true;
+    }
+  }
+  return keep;
+}
+
+int _findBestUpperSectionValue(Map<String, int?> scores, Map<int, int> frequency) {
+  // Calculate potential value for each number considering frequency and score
+  Map<int, int> potentialValues = {};
+  
+  for (var entry in frequency.entries) {
+    int value = entry.key;
+    int count = entry.value;
+    String category = _getUpperSectionCategory(value);
+    
+    // Only consider if category is not filled
+    if (scores[category] == null) {
+      potentialValues[value] = value * count;
+    }
+  }
+  
+  if (potentialValues.isEmpty) return 0;
+  
+  // Return the value that gives highest score
+  return potentialValues.entries
+      .reduce((a, b) => a.value > b.value ? a : b)
+      .key;
+}
+
+String _getUpperSectionCategory(int value) {
+  switch (value) {
+    case 1: return 'ones';
+    case 2: return 'twos';
+    case 3: return 'threes';
+    case 4: return 'fours';
+    case 5: return 'fives';
+    case 6: return 'sixes';
+    default: return '';
+  }
+}
+
+bool _isLargeStraightPossible(List<int> sortedUniqueDice) {
+  if (sortedUniqueDice.length < 4) return false;
+  
+  // Check if we have 4 consecutive numbers
+  int consecutiveCount = 1;
+  for (int i = 0; i < sortedUniqueDice.length - 1; i++) {
+    if (sortedUniqueDice[i + 1] == sortedUniqueDice[i] + 1) {
+      consecutiveCount++;
+    } else {
+      consecutiveCount = 1;
+    }
+    if (consecutiveCount >= 4) return true;
+  }
+  return false;
+}
+
+bool _isSmallStraightPossible(List<int> sortedUniqueDice) {
+  if (sortedUniqueDice.length < 3) return false;
+  
+  // Check if we have 3 consecutive numbers
+  int consecutiveCount = 1;
+  for (int i = 0; i < sortedUniqueDice.length - 1; i++) {
+    if (sortedUniqueDice[i + 1] == sortedUniqueDice[i] + 1) {
+      consecutiveCount++;
+    } else {
+      consecutiveCount = 1;
+    }
+    if (consecutiveCount >= 3) return true;
+  }
+  return false;
+}
+
+List<bool> _keepStraightDice(List<int> dice, bool isLargeStraight) {
+  List<bool> keep = List.filled(dice.length, false);
+  List<int> sequence = isLargeStraight ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
+  
+  for (int i = 0; i < dice.length; i++) {
+    if (sequence.contains(dice[i])) {
+      // Check if this value contributes to a sequence
+      bool isPartOfSequence = false;
+      for (int j = 0; j < sequence.length - (isLargeStraight ? 4 : 3); j++) {
+        List<int> subSequence = sequence.sublist(j, j + (isLargeStraight ? 5 : 4));
+        if (subSequence.contains(dice[i])) {
+          // Count how many dice we have from this subsequence
+          int count = dice.where((d) => subSequence.contains(d)).length;
+          if (count >= (isLargeStraight ? 4 : 3)) {
+            isPartOfSequence = true;
+            break;
+          }
+        }
+      }
+      if (isPartOfSequence) {
+        keep[i] = true;
+      }
+    }
+  }
+  return keep;
 }

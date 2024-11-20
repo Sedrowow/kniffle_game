@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:html' as html;
 
 class SaveGame {
   final String name;
@@ -166,5 +167,51 @@ class SaveGameManager {
     final saveDir = path.join(dir.path, 'kniffel_saves');
     await Directory(saveDir).create(recursive: true);
     return saveDir;
+  }
+
+  static Future<Uint8List> exportSave(SaveGame saveGame) async {
+    final jsonData = saveGame.toJson();
+    final jsonString = jsonEncode(jsonData);
+    return utf8.encode(jsonString);
+  }
+
+  static Future<SaveGame> importSave(Uint8List bytes) async {
+    final jsonString = utf8.decode(bytes);
+    final jsonData = jsonDecode(jsonString);
+    return SaveGame.fromJson(jsonData);
+  }
+
+  static Future<void> downloadSave(SaveGame saveGame) async {
+    if (kIsWeb) {
+      final bytes = await exportSave(saveGame);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement()
+        ..href = url
+        ..setAttribute('download', '${saveGame.name}.kniffel')
+        ..style.display = 'none';
+      
+      html.document.body!.children.add(anchor);
+      anchor.click();
+      html.document.body!.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+    } else {
+      final bytes = await exportSave(saveGame);
+      final directory = await getApplicationDocumentsDirectory();
+      final downloadsPath = path.join(directory.path, 'Downloads');
+      await Directory(downloadsPath).create(recursive: true);
+      
+      final file = File(path.join(downloadsPath, '${saveGame.name}.kniffel'));
+      await file.writeAsBytes(bytes);
+    }
+  }
+
+  static Future<SaveGame?> uploadSave(List<int> bytes) async {
+    try {
+      return await importSave(Uint8List.fromList(bytes));
+    } catch (e) {
+      print('Error importing save: $e');
+      return null;
+    }
   }
 }

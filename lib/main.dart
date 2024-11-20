@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'package:file_picker/file_picker.dart';
+import 'dart:html' as html;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:kniffle_game/ai_service.dart';
@@ -282,45 +285,48 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
         title: const Text('Load Game'),
         content: SizedBox(
           width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: saves.length,
-            itemBuilder: (context, index) {
-              final save = saves[index];
-              return ListTile(
-                title: Text(save.name),
-                subtitle: Text('${save.timestamp}\n'
-                    'Round ${save.currentRound} - ${save.players.length} Players'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => GameScreen(
-                        players: save.players
-                            .map((p) => {
-                                  'name': p.name,
-                                  'isBot': p.isBot,
-                                  'botDifficulty':
-                                      p.botDifficulty ?? 'easy',
-                                })
-                            .toList(),
-                        loadedGame: save,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton(
+                onPressed: _uploadSaveFile,
+                child: const Text('Upload Save File'),
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: saves.length,
+                  itemBuilder: (context, index) {
+                    final save = saves[index];
+                    return ListTile(
+                      title: Text(save.name),
+                      subtitle: Text('${save.timestamp}\n'
+                          'Round ${save.currentRound} - ${save.players.length} Players'),
+                      onTap: () => _loadSaveGame(save),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.download),
+                            onPressed: () => SaveGameManager.downloadSave(save),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete),
+                            onPressed: () async {
+                              await SaveGameManager.deleteSave(save.name);
+                              if (!mounted) return;
+                              Navigator.pop(context);
+                              _showLoadGameDialog();
+                            },
+                          ),
+                        ],
                       ),
-                    ),
-                  );
-                },
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () async {
-                    await SaveGameManager.deleteSave(save.name);
-                    if (!mounted) return;
-                    Navigator.pop(context);
-                    _showLoadGameDialog();
+                    );
                   },
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ),
         actions: [
@@ -329,6 +335,67 @@ class _PlayerSetupScreenState extends State<PlayerSetupScreen> {
             child: const Text('Cancel'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _uploadSaveFile() async {
+    if (kIsWeb) {
+      final input = html.FileUploadInputElement()..accept = '.kniffel';
+      input.click();
+
+      await input.onChange.first;
+      if (input.files?.isEmpty ?? true) return;
+
+      final file = input.files!.first;
+      final reader = html.FileReader();
+      reader.readAsArrayBuffer(file);
+
+      await reader.onLoad.first;
+      final bytes = reader.result as Uint8List;
+      _processSaveFile(bytes);
+    } else {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['kniffel'],
+      );
+
+      if (result != null) {
+        final bytes = result.files.first.bytes;
+        if (bytes != null) {
+          _processSaveFile(bytes);
+        }
+      }
+    }
+  }
+
+  Future<void> _processSaveFile(Uint8List bytes) async {
+    final save = await SaveGameManager.uploadSave(bytes);
+    if (save != null) {
+      if (!mounted) return;
+      _loadSaveGame(save);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid save file')),
+      );
+    }
+  }
+
+  void _loadSaveGame(SaveGame save) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GameScreen(
+          players: save.players
+              .map((p) => {
+                    'name': p.name,
+                    'isBot': p.isBot,
+                    'botDifficulty': p.botDifficulty ?? 'easy',
+                  })
+              .toList(),
+          loadedGame: save,
+        ),
       ),
     );
   }
