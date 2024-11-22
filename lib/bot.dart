@@ -127,20 +127,33 @@ You are a Yatzy AI bot deciding which dice to keep.
 
 **Important Notes:**
 - After specifying which dice to keep, they will be automatically rolled.
-- You can keep any dice by specifying their positions seperated by commas only (1 to 5).
-- To keep previously kept dice, you must include them in your new KeepDice command.
+- Use ONLY numbers 1 to 5 to specify positions.
+- DO NOT use words like 'dice', 'D', or 'area'.
+- Separate multiple positions with commas only.
+- To keep previously kept dice, include them in your new KeepDice command.
 - After your decision, the non-kept dice will be automatically rolled.
 
-Current dice (position: value):
+Current values:
 ${_getDicePositionsString(dice)}
 Currently kept positions: ${_getKeptDicePositions(diceKept)}
 
 Available commands:
-- KeepDice # (where # is the dice position 1 to 5; you can keep multiple dice by using KeepDice #,#,#)
+- KeepDice # (where # is position 1-5; for multiple positions use: KeepDice 1,2,3)
 - EnterScore <Category>
 - SkipEntry
 
-Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
+VALID command examples:
+- KeepDice 1,3,4
+- KeepDice 2,5
+- KeepDice 1
+
+INVALID examples (DO NOT USE):
+- KeepDice D1,D2
+- KeepDice dice1,dice2
+- KeepDice area 1
+- Keep 1,2,3
+
+Decide which positions to keep by using the KeepDice command exactly as shown in the valid examples.
 ''';
 
     print('\n=== OLLAMA Dice Keep Decision ===');
@@ -257,7 +270,6 @@ Decide whether to keep dice and roll again, or proceed to scoring.
       if (response.toLowerCase().contains('keepdice')) {
         List<int> diceToKeep = _parseKeepDiceResponse(response, diceKept);
         if (diceToKeep.isNotEmpty) {
-          rollCount++;
           // Update the diceKept array based on the response
           for (int i = 0; i < diceKept.length; i++) {
             diceKept[i] = false;
@@ -267,6 +279,7 @@ Decide whether to keep dice and roll again, or proceed to scoring.
               diceKept[index] = true;
             }
           }
+          // Remove rollCount increment as it's handled by game logic
           return AIDecision(rollAgain: true, keptDice: diceKept);
         }
       } else {
@@ -398,20 +411,33 @@ You are a Yatzy AI bot deciding which dice to keep.
 
 **Important Notes:**
 - After specifying which dice to keep, they will be automatically rolled.
-- You can keep any dice by specifying their positions (1 to 5).
-- To keep previously kept dice, you must include them in your new KeepDice command.
+- Use ONLY numbers 1 to 5 to specify positions.
+- DO NOT use words like 'dice', 'D', or 'area'.
+- Separate multiple positions with commas only.
+- To keep previously kept dice, include them in your new KeepDice command.
 - After your decision, the non-kept dice will be automatically rolled.
 
-Current dice (position: value):
+Current values:
 ${_getDicePositionsString(dice)}
 Currently kept positions: ${_getKeptDicePositions(diceKept)}
 
 Available commands:
-- KeepDice # (where # is the dice position 1 to 5; you can keep multiple dice by using KeepDice #,#,#)
+- KeepDice # (where # is position 1-5; for multiple positions use: KeepDice 1,2,3)
 - EnterScore <Category>
 - SkipEntry
 
-Decide which dice to keep (or keep the same dice) by using KeepDice command to continue rolling, or choose to score/skip.
+VALID command examples:
+- KeepDice 1,3,4
+- KeepDice 2,5
+- KeepDice 1
+
+INVALID examples (DO NOT USE):
+- KeepDice D1,D2
+- KeepDice dice1,dice2
+- KeepDice area 1
+- Keep 1,2,3
+
+Decide which positions to keep by using the KeepDice command exactly as shown in the valid examples.
 ''';
 
     print('\n=== OpenAI Dice Keep Decision ===');
@@ -537,6 +563,7 @@ Decide whether to keep dice and roll again, or proceed to scoring.
               diceKept[index] = true;
             }
           }
+          // Remove rollCount increment as it's handled by game logic
           return AIDecision(rollAgain: true, keptDice: diceKept);
         }
       } else {
@@ -736,10 +763,11 @@ ${validCategories.join(', ')}
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'model':
-              'llatzy', // Replace with your actual model name if different
+              'llama3.2', // Replace with your actual model name if different
           'prompt': prompt,
           'stream': false, // Set stream to false to get a single response
           'max_tokens': 150,
+          'temperature': 0.2,
         }),
       );
 
@@ -841,7 +869,7 @@ List<int> _parseKeepDiceResponse(String response, List<bool> diceKept) {
   String _getDicePositionsString(List<int> dice) {
     return dice.asMap()
         .entries
-        .map((e) => 'D${e.key + 1}: ${e.value}')
+        .map((e) => 'Position ${e.key + 1}: ${e.value}')
         .join(', ');
   }
 
@@ -1209,3 +1237,34 @@ List<bool> _keepStraightDice(List<int> dice, bool isLargeStraight) {
   }
   return keep;
 }
+
+
+  int _getCategoryValue(String category) {
+    switch (category) {
+      case 'ones': return 1;
+      case 'twos': return 2;
+      case 'threes': return 3;
+      case 'fours': return 4;
+      case 'fives': return 5;
+      case 'sixes': return 6;
+      default: return 0;
+    }
+  }
+
+  List<bool> _fallbackStrategyKeepDice(List<int> dice, Map<int, int> frequency) {
+    // Keep highest frequency dice as fallback
+    if (frequency.isNotEmpty) {
+      var maxFreq = frequency.values.reduce((a, b) => a > b ? a : b);
+      if (maxFreq >= 2) {
+        int valueToKeep = frequency.entries
+            .where((entry) => entry.value == maxFreq)
+            .reduce((a, b) => a.key > b.key ? a : b)
+            .key;
+        return dice.map((die) => die == valueToKeep).toList();
+      }
+    }
+
+    // If no pairs or better, keep highest value dice
+    int highestValue = dice.reduce((a, b) => a > b ? a : b);
+    return dice.map((die) => die == highestValue).toList();
+  }

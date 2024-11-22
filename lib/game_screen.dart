@@ -180,7 +180,7 @@ class GameScreenState extends State<GameScreen> {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
-                if (currentRound < 3) {
+                if (currentRound < 12) {
                   setState(() {
                     currentRound++; // Move to the next round
                     currentPlayerIndex = 0; // Reset to first player
@@ -277,13 +277,14 @@ class GameScreenState extends State<GameScreen> {
   Future<void> handleBotTurn() async {
     if (!widget.players[currentPlayerIndex]['isBot']) return;
 
+    // Get the specific bot difficulty for this player
+    String botDifficultyStr = widget.players[currentPlayerIndex]['botDifficulty'];
+    BotDifficulty botDifficulty = _parseBotDifficulty(botDifficultyStr);
+
     setState(() {
       botTurn = true;
-      resetDice(); // Reset the dice at the start of the bot's turn
+      resetDice();
     });
-
-    BotDifficulty botDifficulty = _parseBotDifficulty(
-        widget.players[currentPlayerIndex]['botDifficulty']);
 
     Bot bot = Bot(
       name: widget.players[currentPlayerIndex]['name'],
